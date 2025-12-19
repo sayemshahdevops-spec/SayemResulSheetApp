@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAYEM's Result Sheet Generator</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Cropper.js CSS -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --accent-color: #e74c3c;
+        }
+        body { background-color: #f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
+        .glass-panel {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            padding: 20px;
+            margin-bottom: 20px;
+            border-top: 4px solid var(--secondary-color);
+        }
+
+        /* OCR Preview Area */
+        #ocr-preview-container {
+            display: none;
+            background: #2c3e50;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            position: relative; 
+        }
+        
+        /* Cropper Container */
+        #canvas-wrapper {
+            max-width: 100%;
+            height: 400px; /* Fixed height for cropper */
+            background-color: #333;
+            overflow: hidden;
+            border-radius: 4px;
+        }
+        
+        /* Image for Cropper */
+        #image-display {
+            max-width: 100%;
+            display: block;
+        }
+
+        /* Subject Rows */
+        .subject-row {
+            transition: background 0.2s;
+            border-bottom: 1px solid #eee;
+            padding: 8px 0;
+        }
+        .subject-row.disabled { opacity: 0.5; background: #fafafa; }
+        .form-control:focus { box-shadow: none; border-color: var(--secondary-color); }
+        .form-control.is-invalid { border-color: #dc3545; background-color: #fff8f8; }
+        
+        /* Green Flash Animation */
+        @keyframes flashGreen {
+            0% { background-color: #d4edda; border-color: #28a745; }
+            100% { background-color: white; border-color: #ced4da; }
+        }
+        .flash-success { animation: flashGreen 1.5s ease-out; }
+
+        /* FAIL CIRCLE (New Feature) */
+        .fail-circle {
+            border: 2px solid #dc3545;
+            color: #dc3545;
+            border-radius: 12px;
+            padding: 2px 8px;
+            display: inline-block;
+            font-weight: bold;
+            background-color: rgba(220, 53, 69, 0.1);
+        }
+
+        /* Stats Cards */
+        .stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            cursor: pointer;
+            transition: transform 0.2s;
+            border: 1px solid transparent;
+        }
+        .stat-card:hover { transform: translateY(-3px); border-color: var(--secondary-color); }
+        .stat-card.active { border-color: var(--secondary-color); background-color: #f8f9fa; }
+        .stat-val { font-size: 1.5rem; font-weight: bold; color: var(--primary-color); }
+        .stat-label { font-size: 0.8rem; color: #7f8c8d; text-transform: uppercase; }
+
+        /* Loading Overlay */
+        #loading-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.95);
+            z-index: 9999;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .loading-text-sub { font-size: 0.9rem; color: #666; margin-top: 5px; }
+        
+        /* Voice Status */
+        #voice-status {
+            font-size: 0.85rem;
+            color: #6610f2;
+            font-weight: bold;
+            min-height: 20px;
+            margin-top: 5px;
+            font-style: italic;
+        }
+        .listening {
+            animation: pulse 1.5s infinite;
+            background-color: #dc3545 !important;
+            color: white !important;
+            border-color: #dc3545 !important;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        /* Table Sort Headers */
+        .sortable-header {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+        }
+        .sortable-header:hover {
+            background-color: #343a40 !important;
+            color: #fff;
+        }
+        .sort-icon {
+            font-size: 0.75rem;
+            margin-left: 5px;
+            opacity: 0.5;
+        }
+        .sortable-header.active-sort .sort-icon {
+            opacity: 1;
+            color: #f1c40f;
+        }
+
+        /* Table Scroll */
+        .table-responsive { white-space: nowrap; }
+    </style>
+</head>
+<body>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay">
+    <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+    <h5 class="mt-3 text-secondary" id="loading-text">Processing...</h5>
+    <div class="loading-text-sub">Analyzing selection...</div>
+</div>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark bg-dark mb-4">
+    <div class="container">
+        <span class="navbar-brand mb-0 h1"><i class="fas fa-graduation-cap me-2"></i>SAYEM's Result Sheet Generator</span>
+        <button class="btn btn-outline-light btn-sm" data-bs-toggle="modal" data-bs-target="#settingsModal">
+            <i class="fas fa-cog me-1"></i> Settings
+        </button>
+    </div>
+</nav>
+
+<div class="container-fluid">
+    <div class="row">
+        <!-- LEFT COLUMN: Data Entry -->
+        <div class="col-lg-4 mb-4">
+            
+            <!-- Smart Scanner Panel -->
+            <div class="glass-panel">
+                <h5 class="mb-3"><i class="fas fa-eye me-2"></i>Smart Input</h5>
+                <div class="d-flex gap-2 mb-2">
+                    <button class="btn btn-primary flex-grow-1" onclick="startCamera()"><i class="fas fa-camera me-1"></i> Live Cam</button>
+                    <button class="btn btn-outline-secondary flex-grow-1" onclick="document.getElementById('fileInput').click()"><i class="fas fa-folder-open me-1"></i> Gallery</button>
+                    <input type="file" id="fileInput" hidden accept="image/*" onchange="handleImageUpload(this)">
+                    
+                    <button id="mic-btn" class="btn btn-outline-primary" onclick="toggleVoiceRecognition()" title="Voice Entry">
+                        <i class="fas fa-microphone"></i>
+                    </button>
+                </div>
+                
+                <div class="alert alert-light border p-2 mb-2 small text-muted">
+                    <strong>Note:</strong> Voice Assistant works <i>online</i> only. Please connect to the Internet.<br>
+                    <strong>Voice Type this way:</strong> In subject (write the subject name like English, Mathematics, etc.) 50 marks.<br>
+                    <strong>For Example:</strong> <i>In English 50 Marks</i>
+                </div>
+                
+                <div id="voice-status" class="text-center"></div>
+
+                <!-- Live Camera UI -->
+                <div id="live-camera-ui" style="display:none; position:relative; margin-bottom:15px;">
+                    <video id="live-video" style="width:100%; border-radius:8px; background:black;" autoplay playsinline></video>
+                    <div class="d-flex gap-2 mt-2">
+                        <button class="btn btn-danger flex-grow-1" onclick="stopCamera()"><i class="fas fa-times"></i> Cancel</button>
+                        <button class="btn btn-success flex-grow-1" onclick="captureLivePhoto()"><i class="fas fa-camera"></i> Capture</button>
+                    </div>
+                </div>
+
+                <!-- Image Processing Preview -->
+                <div id="ocr-preview-container">
+                    <div id="canvas-wrapper">
+                        <img id="image-display" src="" alt="To Crop">
+                    </div>
+                    
+                    <div class="row g-2 mt-2">
+                        <div class="col-12">
+                            <label class="text-white small fw-bold">Adjust Ink Darkness (Visual Preview)</label>
+                            <input type="range" class="form-range" id="threshold-slider" min="0" max="100" value="0" oninput="applyCSSFilter()">
+                            <div class="d-flex justify-content-between text-white small">
+                                <span>Original</span>
+                                <span>Darker</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-warning w-100 mt-2 btn-sm" onclick="runOCR()">
+                        <i class="fas fa-bolt me-1"></i> Scan Selected Area
+                    </button>
+                    <div id="scan-instruction" class="text-white small mt-2 fst-italic">
+                        <i class="fas fa-crop-alt me-1"></i> Resize the box to cover <b>only the marks</b>.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Student Form -->
+            <div class="glass-panel">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="m-0"><i class="fas fa-user-edit me-2"></i>Data Entry</h5>
+                    <button class="btn btn-sm btn-outline-danger" onclick="clearForm()">Reset</button>
+                </div>
+                
+                <div class="row g-2 mb-3">
+                    <div class="col-4">
+                        <input type="text" id="rollNo" class="form-control form-control-sm" placeholder="Roll No">
+                    </div>
+                    <div class="col-8">
+                        <input type="text" id="studentName" class="form-control form-control-sm" placeholder="Student Name (Required)">
+                    </div>
+                    <div class="col-12">
+                        <input type="text" id="fatherName" class="form-control form-control-sm" placeholder="Father Name">
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between text-muted small mb-2 px-1">
+                    <span>Subject (Order Matters)</span>
+                    <span class="me-4">Obt / Max</span>
+                </div>
+
+                <div id="subjects-container">
+                    <!-- Dynamic Subjects Injected Here -->
+                </div>
+
+                <!-- Live Calc Footer -->
+                <div class="mt-3 pt-3 border-top">
+                    <div class="row text-center">
+                        <div class="col-4 border-end">
+                            <div class="small text-muted">Obtained</div>
+                            <div class="fw-bold" id="live-obtained">0</div>
+                        </div>
+                        <div class="col-4 border-end">
+                            <div class="small text-muted">Max</div>
+                            <div class="fw-bold" id="live-max">0</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="small text-muted">Result</div>
+                            <div class="fw-bold" id="live-perc">0%</div>
+                        </div>
+                    </div>
+                    <button id="save-btn" class="btn btn-success w-100 mt-3" onclick="saveStudentResult()">
+                        <i class="fas fa-save me-2"></i>Add to Result Sheet
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT COLUMN: Dashboard & Table -->
+        <div class="col-lg-8">
+            <!-- Stats -->
+            <div class="row g-3 mb-4">
+                <div class="col-4">
+                    <div class="stat-card" id="card-total" onclick="setFilter('all')">
+                        <div class="stat-val" id="total-students">0</div>
+                        <div class="stat-label">Total Students</div>
+                    </div>
+                </div>
+                <div class="col-4">
+                    <div class="stat-card" id="card-pass" onclick="setFilter('pass')">
+                        <div class="stat-val text-success" id="pass-count">0</div>
+                        <div class="stat-label">Passed</div>
+                    </div>
+                </div>
+                <div class="col-4">
+                    <div class="stat-card" id="card-fail" onclick="setFilter('fail')">
+                        <div class="stat-val text-danger" id="fail-count">0</div>
+                        <div class="stat-label">Failed</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div class="glass-panel p-0 overflow-hidden">
+                <div class="p-3 bg-light d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="m-0 fw-bold">Result Sheet</h6>
+                        <small class="text-muted" id="filter-display">Showing: All</small>
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-danger me-1" onclick="deleteAllStudents()">
+                            <i class="fas fa-trash me-1"></i> Clear All
+                        </button>
+                        <button class="btn btn-sm btn-success" onclick="exportToExcel()">
+                            <i class="fas fa-file-excel me-1"></i> Export .xlsx
+                        </button>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height: 600px;">
+                    <table class="table table-hover table-striped mb-0 text-center align-middle" style="font-size: 0.85rem;">
+                        <thead class="table-dark sticky-top" id="table-header">
+                            <!-- JS Will Inject Headers Here -->
+                        </thead>
+                        <tbody id="result-table-body">
+                            <!-- Rows -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal fade" id="settingsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Global Configuration</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">School Name (Excel Header 1)</label>
+                    <input type="text" id="setting-school-name" class="form-control" placeholder="Enter School Name">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Exam Title (Excel Header 2)</label>
+                    <input type="text" id="setting-exam-title" class="form-control" placeholder="Enter Exam Name">
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Passing Criteria (%)</label>
+                            <input type="number" id="setting-passing-threshold" class="form-control" value="33">
+                            <div class="form-text small">Global fallback if subject specific marks are not met.</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Fail if >= X failed subjects</label>
+                            <input type="number" id="setting-max-fail-subjects" class="form-control" value="3">
+                        </div>
+                    </div>
+                </div>
+                <hr>
+                <label class="form-label fw-bold mb-2">Subjects (Name | Max | Pass)</label>
+                <div class="input-group mb-2">
+                    <input type="text" id="new-subject-name" class="form-control" placeholder="Name">
+                    <input type="number" id="new-subject-max" class="form-control" placeholder="Max" style="max-width: 80px;">
+                    <input type="number" id="new-subject-pass" class="form-control" placeholder="Pass" style="max-width: 80px;">
+                    <button class="btn btn-primary" onclick="addSubjectSetting()">Add</button>
+                </div>
+                <ul class="list-group" id="settings-subject-list" style="max-height: 300px; overflow-y: auto;">
+                    <!-- List items generated by JS -->
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="saveSettings()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SCRIPTS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Tesseract.js (OCR) -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+<!-- SheetJS with Styles Support (Upgrade for Color/Fonts) -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.min.js"></script>
+<!-- Cropper.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+
+<script>
+    // --- STATE MANAGEMENT ---
+    let appState = {
+        schoolName: "GPS DHOKE RAZA KHAN BILLITANG KOHAT",
+        examTitle: "Class 2 Result Sheet For Mid Term Examination – December Session 2025–26",
+        passingThreshold: 33,
+        maxFailSubjects: 3, 
+        subjects: [
+            { name: "Urdu", max: 75, pass: 25 },
+            { name: "Mathematics", max: 100, pass: 33 },
+            { name: "English", max: 75, pass: 25 },
+            { name: "Science", max: 75, pass: 25 },
+            { name: "Islamiyat", max: 50, pass: 16.5 },
+            { name: "S.Studies", max: 50, pass: 16.5 },
+            { name: "Pashto", max: 75, pass: 25 },
+            { name: "General Knowledge", max: 50, pass: 16.5 },
+            { name: "Nazra", max: 50, pass: 16.5 }
+        ],
+        students: [],
+        currentFilter: 'all',
+        sortConfig: { key: 'rollNo', direction: 'asc' } 
+    };
+    
+    let editingStudentId = null; 
+
+    // --- VOICE RECOGNITION LOGIC ---
+    let recognition;
+    let isListening = false;
+    let recognitionShouldContinue = false;
+
+    const subjectAliases = {
+        "math": "Mathematics", "maths": "Mathematics", "mathematics": "Mathematics",
+        "urdu": "Urdu",
+        "english": "English",
+        "science": "Science",
+        "islamiyat": "Islamiyat", "islamiat": "Islamiyat", "islamic": "Islamiyat",
+        "social": "S.Studies", "social studies": "S.Studies", "history": "S.Studies", "sst": "S.Studies", "pst": "S.Studies",
+        "pashto": "Pashto",
+        "general": "General Knowledge", "gk": "General Knowledge", "general knowledge": "General Knowledge",
+        "nazra": "Nazra", "quran": "Nazra"
+    };
+
+    function toggleVoiceRecognition() {
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+            alert("Your browser does not support Voice Recognition. Try Chrome.");
+            return;
+        }
+
+        if (isListening) {
+            recognitionShouldContinue = false;
+            recognition.stop();
+            return;
+        }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US'; 
+
+        const statusDiv = document.getElementById('voice-status');
+        const micBtn = document.getElementById('mic-btn');
+
+        recognition.onstart = () => {
+            isListening = true;
+            recognitionShouldContinue = true;
+            micBtn.classList.remove('btn-outline-primary');
+            micBtn.classList.add('listening'); 
+            statusDiv.innerHTML = '<i class="fas fa-circle text-danger me-1"></i>Listening...';
+        };
+
+        recognition.onresult = (event) => {
+            let transcript = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                transcript += event.results[i][0].transcript;
+            }
+            statusDiv.innerText = `Heard: "${transcript}"`;
+            
+            if (event.results[event.results.length - 1].isFinal) {
+                parseVoiceCommand(transcript);
+            }
+        };
+
+        recognition.onend = () => {
+            if (recognitionShouldContinue) {
+                recognition.start(); 
+            } else {
+                isListening = false;
+                micBtn.classList.add('btn-outline-primary');
+                micBtn.classList.remove('listening');
+                statusDiv.innerText = '';
+            }
+        };
+
+        recognition.start();
+    }
+
+    function parseVoiceCommand(transcript) {
+        const segments = transcript.toLowerCase().split(/\bin\b/g); 
+        let filledCount = 0;
+
+        segments.forEach(segment => {
+            segment = segment.trim();
+            if (!segment) return;
+
+            let matchedSubjectName = null;
+            
+            for (let sub of appState.subjects) {
+                if (segment.includes(sub.name.toLowerCase())) {
+                    matchedSubjectName = sub.name;
+                    break;
+                }
+            }
+            
+            if (!matchedSubjectName) {
+                for (let [alias, realName] of Object.entries(subjectAliases)) {
+                    if (segment.includes(alias)) {
+                        matchedSubjectName = realName;
+                        break;
+                    }
+                }
+            }
+
+            const numbers = segment.match(/\d+/g);
+            const marks = numbers ? numbers[0] : null; 
+
+            if (matchedSubjectName && marks !== null) {
+                fillSubjectMark(matchedSubjectName, marks);
+                filledCount++;
+            }
+        });
+        
+        if (filledCount > 0) {
+            calculateLive();
+        }
+    }
+
+    function fillSubjectMark(subjectName, marks) {
+        const rows = document.querySelectorAll('.subject-row');
+        rows.forEach(row => {
+            const label = row.querySelector('.sub-name-label').innerText;
+            if (label === subjectName) {
+                const input = row.querySelector('.obt-input');
+                const checkBox = row.querySelector('.form-check-input');
+                
+                if (!checkBox.checked) checkBox.checked = true;
+                input.value = marks;
+                
+                input.classList.remove('flash-success'); 
+                void input.offsetWidth; 
+                input.classList.add('flash-success');
+            }
+        });
+    }
+
+    // --- MAIN APP LOGIC ---
+
+    function loadState() {
+        const saved = localStorage.getItem('schoolResultState');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            appState.passingThreshold = parsed.passingThreshold || 33;
+            if(parsed.maxFailSubjects !== undefined) appState.maxFailSubjects = parsed.maxFailSubjects;
+            if(parsed.subjects) appState.subjects = parsed.subjects;
+            if(parsed.students) appState.students = parsed.students;
+            if(parsed.schoolName) appState.schoolName = parsed.schoolName;
+            if(parsed.examTitle && parsed.examTitle !== "Mid Term Examination – December Session 2025–26") {
+                 appState.examTitle = parsed.examTitle;
+            }
+            if(parsed.sortConfig) appState.sortConfig = parsed.sortConfig;
+        }
+        renderSettingsList();
+        renderForm();
+        renderTable();
+        updateStats();
+    }
+
+    function saveState() {
+        localStorage.setItem('schoolResultState', JSON.stringify(appState));
+    }
+
+    function renderSettingsList() {
+        document.getElementById('setting-school-name').value = appState.schoolName;
+        document.getElementById('setting-exam-title').value = appState.examTitle;
+        document.getElementById('setting-passing-threshold').value = appState.passingThreshold;
+        document.getElementById('setting-max-fail-subjects').value = appState.maxFailSubjects;
+
+        const list = document.getElementById('settings-subject-list');
+        list.innerHTML = '';
+        appState.subjects.forEach((sub, index) => {
+            const passVal = sub.pass !== undefined ? sub.pass : (sub.max * 0.33).toFixed(1);
+            const li = document.createElement('li');
+            li.className = 'list-group-item d-flex justify-content-between align-items-center';
+            li.innerHTML = `
+                <span>${sub.name}</span>
+                <div class="d-flex align-items-center gap-1">
+                    <input type="number" class="form-control form-control-sm" style="width:60px" placeholder="Max"
+                           value="${sub.max}" onchange="updateSubjectSetting(${index}, 'max', this.value)">
+                    <input type="number" class="form-control form-control-sm" style="width:60px" placeholder="Pass"
+                           value="${passVal}" onchange="updateSubjectSetting(${index}, 'pass', this.value)">
+                    <button class="btn btn-sm btn-outline-danger" onclick="removeSubject(${index})">&times;</button>
+                </div>
+            `;
+            list.appendChild(li);
+        });
+    }
+
+    function addSubjectSetting() {
+        const name = document.getElementById('new-subject-name').value.trim();
+        const max = parseFloat(document.getElementById('new-subject-max').value);
+        const passRaw = document.getElementById('new-subject-pass').value;
+        
+        let pass = parseFloat(passRaw);
+        if(isNaN(pass)) {
+            // Default Logic
+            if(max === 100) pass = 33;
+            else if(max === 75) pass = 25;
+            else if(max === 50) pass = 16.5;
+            else pass = (max * 0.33); 
+        }
+
+        if (name && !isNaN(max)) {
+            appState.subjects.push({ name: name, max: max, pass: pass });
+            document.getElementById('new-subject-name').value = '';
+            document.getElementById('new-subject-max').value = '';
+            document.getElementById('new-subject-pass').value = '';
+            renderSettingsList();
+        }
+    }
+
+    function removeSubject(index) {
+        appState.subjects.splice(index, 1);
+        renderSettingsList();
+    }
+
+    function updateSubjectSetting(index, key, value) {
+        const val = parseFloat(value);
+        if(!isNaN(val)) {
+            appState.subjects[index][key] = val;
+        }
+    }
+
+    function saveSettings() {
+        appState.passingThreshold = parseInt(document.getElementById('setting-passing-threshold').value);
+        appState.maxFailSubjects = parseInt(document.getElementById('setting-max-fail-subjects').value);
+        appState.schoolName = document.getElementById('setting-school-name').value;
+        appState.examTitle = document.getElementById('setting-exam-title').value;
+        
+        // Recalculate logic for all existing students
+        appState.students.forEach(s => {
+            let totalObt = 0;
+            let totalMax = 0;
+            let failedSubjectsCount = 0;
+            
+            appState.subjects.forEach(sub => {
+                if (s.subjects[sub.name]) {
+                    const data = s.subjects[sub.name];
+                    let obt = 0;
+                    if(data.obt !== 'N/A') {
+                        data.max = sub.max; 
+                        
+                        let raw = data.obt.toString().toLowerCase();
+                        if(raw === 'a' || raw === 'absent') obt = 0;
+                        else obt = parseFloat(raw) || 0;
+                        
+                        const subPass = sub.pass !== undefined ? sub.pass : (sub.max * 0.33);
+                        if(obt < subPass) failedSubjectsCount++;
+                        
+                        totalObt += obt;
+                        totalMax += sub.max;
+                    }
+                }
+            });
+            
+            s.totalObt = totalObt;
+            s.totalMax = totalMax;
+            s.perc = totalMax > 0 ? (totalObt / totalMax * 100) : 0;
+            
+            let passed = s.perc >= appState.passingThreshold;
+            if (failedSubjectsCount >= appState.maxFailSubjects) passed = false;
+            s.passed = passed;
+            
+            if (!passed) s.grade = "F";
+            else if (s.perc >= 80) s.grade = "A";
+            else if (s.perc >= 60) s.grade = "B";
+            else if (s.perc >= 50) s.grade = "C";
+            else if (s.perc >= 40) s.grade = "D";
+            else if (s.perc >= 33) s.grade = "E";
+            else s.grade = "F";
+        });
+        
+        recalcRanksAndSort();
+        saveState();
+        renderForm();
+        renderTable(); 
+        updateStats(); 
+        const modal = bootstrap.Modal.getInstance(document.getElementById('settingsModal'));
+        modal.hide();
+    }
+
+    // --- FORM & CALCULATION LOGIC ---
+    function renderForm() {
+        const container = document.getElementById('subjects-container');
+        container.innerHTML = '';
+        
+        appState.subjects.forEach((sub, idx) => {
+            const div = document.createElement('div');
+            div.className = 'subject-row row g-1 align-items-center';
+            div.id = `row-${idx}`;
+            div.innerHTML = `
+                <div class="col-1 text-center">
+                    <input class="form-check-input" type="checkbox" checked onchange="toggleSubject(${idx})">
+                </div>
+                <div class="col-5">
+                    <span class="small fw-bold sub-name-label">${sub.name}</span>
+                </div>
+                <div class="col-3">
+                    <input type="text" class="form-control form-control-sm text-center obt-input" 
+                           placeholder="0" oninput="validateInput(this)">
+                </div>
+                <div class="col-3">
+                    <input type="number" class="form-control form-control-sm text-center max-input" 
+                           value="${sub.max}" oninput="validateInput(this)">
+                </div>
+            `;
+            container.appendChild(div);
+        });
+        calculateLive();
+    }
+
+    function toggleSubject(idx) {
+        const row = document.getElementById(`row-${idx}`);
+        const inputs = row.querySelectorAll('input[type="text"], input[type="number"]');
+        const isChecked = row.querySelector('.form-check-input').checked;
+        
+        if (isChecked) {
+            row.classList.remove('disabled');
+            inputs.forEach(i => i.disabled = false);
+        } else {
+            row.classList.add('disabled');
+            inputs.forEach(i => i.disabled = true);
+        }
+        calculateLive();
+    }
+
+    function validateInput(el) {
+        // Regex allows 0-9 and 'a' or 'A'. Everything else is removed.
+        el.value = el.value.replace(/[^0-9aA.]/g, ''); 
+        calculateLive();
+    }
+
+    function calculateLive(changedInput = null) {
+        let totalObt = 0;
+        let totalMax = 0;
+
+        const rows = document.querySelectorAll('.subject-row');
+        rows.forEach(row => {
+            const check = row.querySelector('.form-check-input');
+            const inputObt = row.querySelector('.obt-input');
+            const inputMax = row.querySelector('.max-input');
+
+            if (check.checked) {
+                let obtRaw = inputObt.value.toLowerCase().trim();
+                let maxVal = parseFloat(inputMax.value) || 0;
+                let obt = 0;
+
+                if (obtRaw === 'a' || obtRaw === 'absent') {
+                    obt = 0; 
+                } else {
+                    obt = parseFloat(obtRaw) || 0;
+                }
+
+                if (obt > maxVal && obtRaw !== 'a' && obtRaw !== 'absent') {
+                    if (Math.floor(obt / 10) <= maxVal && Math.floor(obt / 10) > 0) {
+                        obt = Math.floor(obt / 10);
+                        inputObt.value = obt; 
+                        inputObt.classList.remove('is-invalid');
+                    } else {
+                        inputObt.classList.add('is-invalid');
+                    }
+                } else {
+                    inputObt.classList.remove('is-invalid');
+                }
+
+                totalObt += obt;
+                totalMax += maxVal;
+            }
+        });
+
+        document.getElementById('live-obtained').innerText = totalObt;
+        document.getElementById('live-max').innerText = totalMax;
+        
+        let perc = totalMax > 0 ? (totalObt / totalMax * 100).toFixed(1) : 0;
+        document.getElementById('live-perc').innerText = perc + '%';
+        
+        const percEl = document.getElementById('live-perc');
+        if (perc >= appState.passingThreshold) {
+            percEl.className = 'fw-bold text-success';
+        } else {
+            percEl.className = 'fw-bold text-danger';
+        }
+    }
+
+    function clearForm() {
+        editingStudentId = null;
+        document.getElementById('save-btn').innerHTML = '<i class="fas fa-save me-2"></i>Add to Result Sheet';
+        document.getElementById('save-btn').className = 'btn btn-success w-100 mt-3';
+        
+        document.getElementById('rollNo').value = '';
+        document.getElementById('studentName').value = '';
+        document.getElementById('fatherName').value = '';
+        renderForm();
+        document.getElementById('ocr-preview-container').style.display = 'none';
+        document.getElementById('voice-status').innerText = '';
+    }
+
+    // --- CAMERA & CROPPER LOGIC ---
+    let cropper;
+    let videoStream = null;
+
+    async function startCamera() {
+        const video = document.getElementById('live-video');
+        const container = document.getElementById('live-camera-ui');
+        const ocrContainer = document.getElementById('ocr-preview-container');
+        
+        ocrContainer.style.display = 'none';
+        container.style.display = 'block';
+        
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment' } 
+            });
+            videoStream = stream;
+            video.srcObject = stream;
+        } catch (err) {
+            console.error("Camera Error:", err);
+            alert("Could not access camera. Please allow permissions or use Gallery.");
+            container.style.display = 'none';
+        }
+    }
+
+    function stopCamera() {
+        if (videoStream) {
+            videoStream.getTracks().forEach(track => track.stop());
+            videoStream = null;
+        }
+        document.getElementById('live-camera-ui').style.display = 'none';
+    }
+
+    function captureLivePhoto() {
+        const video = document.getElementById('live-video');
+        
+        // Create temp canvas to capture frame
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = video.videoWidth;
+        tempCanvas.height = video.videoHeight;
+        const ctx = tempCanvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+        
+        const imgUrl = tempCanvas.toDataURL('image/png');
+        
+        stopCamera();
+        
+        // Init cropper with captured image
+        const imgDisplay = document.getElementById('image-display');
+        imgDisplay.src = imgUrl;
+        initCropInterface();
+    }
+
+    function handleImageUpload(input) {
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = document.getElementById('image-display');
+                img.src = e.target.result;
+                initCropInterface();
+            }
+            reader.readAsDataURL(input.files[0]);
+        }
+    }
+
+    function initCropInterface() {
+        const container = document.getElementById('ocr-preview-container');
+        container.style.display = 'block';
+        
+        const img = document.getElementById('image-display');
+        
+        if (cropper) {
+            cropper.destroy();
+        }
+        
+        cropper = new Cropper(img, {
+            viewMode: 1,
+            dragMode: 'move',
+            autoCropArea: 0.5,
+            restore: false,
+            guides: true,
+            center: true,
+            highlight: false,
+            cropBoxMovable: true,
+            cropBoxResizable: true,
+            toggleDragModeOnDblclick: false,
+        });
+        
+        applyCSSFilter();
+    }
+
+    function applyCSSFilter() {
+        const val = document.getElementById('threshold-slider').value;
+        // Apply filter to the cropper image container
+        const cropperImg = document.querySelector('.cropper-container img');
+        if(cropperImg) {
+            // Visual simulation of thresholding
+            cropperImg.style.filter = `grayscale(100%) contrast(${100 + parseInt(val)}%) brightness(${100 - (val/4)}%)`;
+        }
+    }
+
+    async function runOCR() {
+        if (!cropper) return;
+        
+        const loading = document.getElementById('loading-overlay');
+        loading.style.display = 'flex';
+        document.getElementById('loading-text').innerText = "Scanning Selected Area...";
+        
+        // 1. Get Cropped Canvas
+        let canvas = cropper.getCroppedCanvas();
+        
+        // 2. Apply Threshold (Pixel Manipulation)
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        const imgData = ctx.getImageData(0, 0, width, height);
+        const data = imgData.data;
+        const threshold = 128 - (parseInt(document.getElementById('threshold-slider').value) / 3); 
+
+        for (let i = 0; i < data.length; i += 4) {
+            let gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+            let val = gray > threshold ? 255 : 0; 
+            data[i] = val; data[i+1] = val; data[i+2] = val;
+        }
+        ctx.putImageData(imgData, 0, 0);
+
+        try {
+            const worker = await Tesseract.createWorker();
+            await worker.loadLanguage('eng');
+            await worker.initialize('eng');
+            
+            await worker.setParameters({
+                tessedit_pageseg_mode: '6', 
+                tessedit_char_whitelist: '0123456789\n' 
+            });
+            
+            const { data } = await worker.recognize(canvas);
+            await worker.terminate();
+
+            const lines = data.text.split('\n')
+                .map(l => l.replace(/\s+/g, '').trim()) 
+                .filter(l => l.length > 0 && !isNaN(parseFloat(l)));
+
+            const subjectRows = document.querySelectorAll('.subject-row');
+            let fillCount = 0;
+            let lineIdx = 0;
+
+            subjectRows.forEach(row => {
+                const input = row.querySelector('.obt-input');
+                const checkBox = row.querySelector('.form-check-input');
+                
+                if (checkBox.checked && lineIdx < lines.length) {
+                    input.value = lines[lineIdx];
+                    lineIdx++;
+                    fillCount++;
+                }
+            });
+
+            calculateLive();
+            alert(`Extracted ${fillCount} marks from selection.`);
+
+        } catch (err) {
+            console.error(err);
+            alert("OCR Error: " + err.message);
+        } finally {
+            loading.style.display = 'none';
+        }
+    }
+
+
+    // --- SORTING LOGIC ---
+    function sortTable(key) {
+        if (appState.sortConfig.key === key) {
+            appState.sortConfig.direction = appState.sortConfig.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+            appState.sortConfig.key = key;
+            appState.sortConfig.direction = key === 'perc' ? 'desc' : 'asc'; // Default desc for %
+        }
+        recalcRanksAndSort();
+        renderTable();
+    }
+    
+    function recalcRanksAndSort() {
+        // 1. Calculate Rank always based on Percentage (High to Low)
+        const rankedList = [...appState.students].sort((a, b) => b.perc - a.perc);
+        rankedList.forEach((s, idx) => s.rank = idx + 1);
+
+        // 2. Apply current sort config
+        const key = appState.sortConfig.key;
+        const dir = appState.sortConfig.direction === 'asc' ? 1 : -1;
+
+        appState.students.sort((a, b) => {
+            let valA = a[key];
+            let valB = b[key];
+
+            if (key === 'rollNo') {
+                return (parseInt(valA) - parseInt(valB)) * dir;
+            } else if (key === 'perc' || key === 'rank') {
+                return (valA - valB) * dir;
+            } else {
+                return valA.toString().localeCompare(valB.toString()) * dir;
+            }
+        });
+    }
+
+    // --- DASHBOARD & TABLE ---
+    function setFilter(filter) {
+        appState.currentFilter = filter;
+        
+        document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active'));
+        if(filter === 'all') document.getElementById('card-total').classList.add('active');
+        if(filter === 'pass') document.getElementById('card-pass').classList.add('active');
+        if(filter === 'fail') document.getElementById('card-fail').classList.add('active');
+        
+        const labels = {all:'All', pass:'Passed', fail:'Failed'};
+        document.getElementById('filter-display').innerText = "Showing: " + labels[filter];
+        
+        renderTable();
+    }
+
+    function saveStudentResult() {
+        const name = document.getElementById('studentName').value;
+        if (!name) { alert("Student Name is required!"); return; }
+
+        let subjectsData = {};
+        let totalObt = 0;
+        let totalMax = 0;
+        let failedSubjectsCount = 0; 
+
+        const rows = document.querySelectorAll('.subject-row');
+        rows.forEach((row, idx) => {
+            const check = row.querySelector('.form-check-input');
+            const subName = appState.subjects[idx].name;
+            const subPassMarks = appState.subjects[idx].pass !== undefined ? appState.subjects[idx].pass : (appState.subjects[idx].max * 0.33);
+            
+            if (check.checked) {
+                const obtRaw = row.querySelector('.obt-input').value.trim();
+                const max = parseFloat(row.querySelector('.max-input').value) || 0;
+                
+                let obt = parseFloat(obtRaw) || 0;
+                if (obtRaw.toLowerCase() === 'a') { obt = 0; } 
+                
+                if (obt < subPassMarks) {
+                    failedSubjectsCount++;
+                }
+
+                subjectsData[subName] = { 
+                    obt: obtRaw, 
+                    max: max 
+                };
+                
+                totalObt += obt;
+                totalMax += max;
+            } else {
+                subjectsData[subName] = { obt: "N/A", max: 0 };
+            }
+        });
+
+        const perc = totalMax > 0 ? (totalObt / totalMax * 100) : 0;
+        
+        let passed = perc >= appState.passingThreshold;
+        if (failedSubjectsCount >= appState.maxFailSubjects) {
+            passed = false; 
+        }
+        
+        let grade = "F";
+        if (!passed) {
+            grade = "F";
+        } else {
+            if (perc >= 80) grade = "A";
+            else if (perc >= 60) grade = "B";
+            else if (perc >= 50) grade = "C";
+            else if (perc >= 40) grade = "D";
+            else if (perc >= 33) grade = "E";
+        }
+
+        const student = {
+            id: editingStudentId || Date.now(), 
+            rollNo: document.getElementById('rollNo').value,
+            name: name,
+            fatherName: document.getElementById('fatherName').value,
+            subjects: subjectsData,
+            totalObt,
+            totalMax,
+            perc,
+            passed,
+            grade,
+            rank: 0 
+        };
+
+        if (editingStudentId) {
+            const index = appState.students.findIndex(s => s.id === editingStudentId);
+            if (index !== -1) {
+                appState.students[index] = student;
+            }
+        } else {
+            appState.students.push(student);
+        }
+
+        recalcRanksAndSort();
+        saveState();
+        renderTable();
+        updateStats();
+        clearForm();
+        
+        document.querySelector('.table-responsive').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function updateStats() {
+        document.getElementById('total-students').innerText = appState.students.length;
+        document.getElementById('pass-count').innerText = appState.students.filter(s => s.passed).length;
+        document.getElementById('fail-count').innerText = appState.students.filter(s => !s.passed).length;
+    }
+
+    function renderTable() {
+        const thead = document.getElementById('table-header');
+        const tbody = document.getElementById('result-table-body');
+        
+        const getIcon = (key) => {
+            if(appState.sortConfig.key !== key) return '<i class="fas fa-sort sort-icon"></i>';
+            return appState.sortConfig.direction === 'asc' ? '<i class="fas fa-sort-up sort-icon"></i>' : '<i class="fas fa-sort-down sort-icon"></i>';
+        };
+
+        const activeClass = (key) => appState.sortConfig.key === key ? 'active-sort' : '';
+
+        let headerHtml = `
+            <tr>
+                <th class="sortable-header ${activeClass('rollNo')}" onclick="sortTable('rollNo')">Roll ${getIcon('rollNo')}</th>
+                <th class="sortable-header text-start ${activeClass('name')}" onclick="sortTable('name')">Name ${getIcon('name')}</th>
+        `;
+        appState.subjects.forEach(sub => {
+            headerHtml += `<th>${sub.name.substring(0,3)}</th>`;
+        });
+        headerHtml += `
+                <th>Total</th>
+                <th class="sortable-header ${activeClass('perc')}" onclick="sortTable('perc')">% ${getIcon('perc')}</th>
+                <th>Grade</th>
+                <th class="sortable-header ${activeClass('rank')}" onclick="sortTable('rank')">Pos ${getIcon('rank')}</th>
+                <th>Action</th>
+            </tr>
+        `;
+        thead.innerHTML = headerHtml;
+
+        tbody.innerHTML = '';
+        
+        const filteredStudents = appState.students.filter(s => {
+            if(appState.currentFilter === 'pass') return s.passed;
+            if(appState.currentFilter === 'fail') return !s.passed;
+            return true;
+        });
+
+        filteredStudents.forEach(s => {
+            const tr = document.createElement('tr');
+            let badgeClass = s.passed ? 'bg-success' : 'bg-danger';
+            
+            let rowHtml = `
+                <td>${s.rollNo || '-'}</td>
+                <td class="text-start">
+                    <div class="fw-bold">${s.name}</div>
+                    <div class="small text-muted">${s.fatherName || ''}</div>
+                </td>
+            `;
+            
+            appState.subjects.forEach((sub) => {
+                const val = s.subjects[sub.name] ? s.subjects[sub.name].obt : '-';
+                
+                // Highlight failed papers
+                let displayVal = val;
+                const subPass = sub.pass !== undefined ? sub.pass : (sub.max * 0.33);
+                
+                if (val !== 'N/A' && val !== '-' && !isNaN(parseFloat(val))) {
+                    if (parseFloat(val) < subPass) {
+                         displayVal = `<span class="fail-circle">${val}</span>`;
+                    }
+                }
+                
+                rowHtml += `<td>${displayVal}</td>`;
+            });
+
+            rowHtml += `
+                <td class="fw-bold">${s.totalObt}</td>
+                <td>${s.perc.toFixed(1)}%</td>
+                <td><span class="badge ${badgeClass}">${s.grade}</span></td>
+                <td class="fw-bold text-muted">#${s.rank}</td>
+                <td>
+                    <button class="btn btn-sm btn-light text-warning" onclick="editStudent(${s.id})" title="Edit">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-sm btn-light text-danger" onclick="deleteStudent(${s.id})" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            `;
+            tr.innerHTML = rowHtml;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function editStudent(id) {
+        const student = appState.students.find(s => s.id === id);
+        if (!student) return;
+
+        editingStudentId = id;
+        
+        document.getElementById('rollNo').value = student.rollNo || '';
+        document.getElementById('studentName').value = student.name || '';
+        document.getElementById('fatherName').value = student.fatherName || '';
+
+        const rows = document.querySelectorAll('.subject-row');
+        rows.forEach((row, idx) => {
+            const subName = appState.subjects[idx].name;
+            const check = row.querySelector('.form-check-input');
+            const inputObt = row.querySelector('.obt-input');
+            const inputMax = row.querySelector('.max-input');
+
+            if (student.subjects[subName]) {
+                const data = student.subjects[subName];
+                if (data.obt !== "N/A") {
+                    check.checked = true;
+                    inputObt.value = data.obt;
+                    inputMax.value = data.max;
+                    row.classList.remove('disabled');
+                    inputObt.disabled = false;
+                    inputMax.disabled = false;
+                } else {
+                    check.checked = false;
+                    row.classList.add('disabled');
+                    inputObt.disabled = true;
+                    inputMax.disabled = true;
+                }
+            }
+        });
+
+        calculateLive();
+        
+        const btn = document.getElementById('save-btn');
+        btn.innerHTML = '<i class="fas fa-check-circle me-2"></i>Update Student';
+        btn.className = 'btn btn-warning w-100 mt-3';
+
+        document.querySelector('.glass-panel').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function deleteStudent(id) {
+        if(confirm("Delete this student record?")) {
+            appState.students = appState.students.filter(s => s.id !== id);
+            recalcRanksAndSort();
+            saveState();
+            renderTable();
+            updateStats();
+        }
+    }
+
+    function deleteAllStudents() {
+        if(confirm("Are you sure you want to delete ALL student records? This cannot be undone.")) {
+            appState.students = [];
+            saveState();
+            renderTable();
+            updateStats();
+        }
+    }
+
+    // --- PROFESSIONAL EXCEL EXPORT ---
+    function exportToExcel() {
+        if (appState.students.length === 0) { alert("No data to export!"); return; }
+
+        // 1. Prepare Data Rows
+        const exportData = appState.students.map(s => {
+            const row = [
+                s.rollNo, 
+                s.name, 
+                s.fatherName
+            ];
+            appState.subjects.forEach(sub => {
+                const subData = s.subjects[sub.name];
+                const val = subData && subData.obt !== "N/A" ? subData.obt : "-";
+                row.push(!isNaN(parseFloat(val)) && isFinite(val) ? parseFloat(val) : val);
+            });
+            row.push(s.totalMax, s.totalObt, parseFloat(s.perc.toFixed(2)), s.passed ? "PASS" : "FAIL", s.grade); 
+            row.push(s.rank); 
+            return row;
+        });
+
+        // 2. Define Headers
+        const headerRow = ["Roll No", "Student Name", "Father Name"];
+        appState.subjects.forEach(s => headerRow.push(s.name));
+        headerRow.push("Total Max", "Total Obt", "Percentage", "Remarks", "Grade", "Position");
+
+        // 3. Create Total Marks Row
+        const totalMarksRow = ["", "", ""]; 
+        let grandTotalMax = 0;
+        appState.subjects.forEach(s => {
+            totalMarksRow.push(s.max);
+            grandTotalMax += s.max;
+        });
+        totalMarksRow.push(grandTotalMax, "", "", "", "", "");
+
+        // 4. Construct Full Sheet Data
+        const wsData = [
+            [appState.schoolName],
+            [appState.examTitle],
+            headerRow,
+            totalMarksRow,
+            ...exportData
+        ];
+
+        // 5. Create Worksheet
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+        // 6. Merges
+        const colCount = headerRow.length;
+        ws['!merges'] = [
+            { s: { r: 0, c: 0 }, e: { r: 0, c: colCount - 1 } }, // Row 0 Title
+            { s: { r: 1, c: 0 }, e: { r: 1, c: colCount - 1 } } // Row 1 Exam Title
+        ];
+
+        // 7. Styles
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        
+        const titleStyle = { font: { name: "Garamond", sz: 30, bold: true }, alignment: { horizontal: "center", vertical: "center" } };
+        const subtitleStyle = { font: { name: "Garamond", sz: 20, bold: true }, alignment: { horizontal: "center", vertical: "center" } };
+        const headerStyle = { font: { bold: true }, fill: { fgColor: { rgb: "CCCCCC" } }, alignment: { horizontal: "center" }, border: { bottom: {style:"thin"} } };
+        
+        const totalRowStyle = { font: { bold: true }, fill: { fgColor: { rgb: "E2EFDA" } }, alignment: { horizontal: "center" }, border: { top: {style:"thin"}, bottom: {style:"thin"}, left: {style:"thin"}, right: {style:"thin"} } };
+        
+        const dataCellStyle = { alignment: { horizontal: "center" }, border: { top: {style:"thin"}, bottom: {style:"thin"}, left: {style:"thin"}, right: {style:"thin"} } };
+        const leftCellStyle = { alignment: { horizontal: "left" }, border: { top: {style:"thin"}, bottom: {style:"thin"}, left: {style:"thin"}, right: {style:"thin"} } };
+
+        for (let R = 0; R <= range.e.r; ++R) {
+            for (let C = 0; C <= range.e.c; ++C) {
+                const cellRef = XLSX.utils.encode_cell({c: C, r: R});
+                if (!ws[cellRef]) ws[cellRef] = { v: "", t: "s" };
+
+                if (R === 0) ws[cellRef].s = titleStyle;
+                else if (R === 1) ws[cellRef].s = subtitleStyle;
+                else if (R === 2) ws[cellRef].s = headerStyle;
+                else if (R === 3) {
+                    ws[cellRef].s = totalRowStyle;
+                    if (C === 1 || C === 2) ws[cellRef].v = ""; 
+                }
+                else {
+                    // Data Rows
+                    if (C === 1 || C === 2) ws[cellRef].s = leftCellStyle; 
+                    else ws[cellRef].s = dataCellStyle;
+
+                    // NEW FEATURE: Highlight Failed Papers in Excel (Red Text/Border)
+                    if (C >= 3 && C < 3 + appState.subjects.length && R > 3) {
+                        const subIdx = C - 3;
+                        const sub = appState.subjects[subIdx];
+                        const subPass = sub.pass !== undefined ? sub.pass : (sub.max * 0.33);
+                        const cellVal = ws[cellRef].v;
+
+                        if (typeof cellVal === 'number' && cellVal < subPass) {
+                             ws[cellRef].s = {
+                                alignment: { horizontal: "center" },
+                                font: { color: { rgb: "FF0000" }, bold: true },
+                                border: {
+                                    top: { style: "thick", color: { rgb: "FF0000" } },
+                                    bottom: { style: "thick", color: { rgb: "FF0000" } },
+                                    left: { style: "thick", color: { rgb: "FF0000" } },
+                                    right: { style: "thick", color: { rgb: "FF0000" } }
+                                }
+                            };
+                        }
+                    }
+                }
+            }
+        }
+
+        const colWidths = headerRow.map(h => ({ wch: h.length + 5 }));
+        ws['!cols'] = colWidths;
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Result Sheet");
+        XLSX.writeFile(wb, "Sayem Result Sheet.xlsx");
+    }
+
+    // Init
+    window.onload = loadState;
+
+</script>
+</body>
+</html>
