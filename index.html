@@ -462,16 +462,33 @@
         recognition.continuous = true;
         recognition.interimResults = true;
         recognition.lang = 'en-US'; 
+        
+        // FIX 1: Attempt to force local/offline service (Android specific)
+        try {
+            recognition.localService = true;
+        } catch(e) {
+            console.warn("localService property not supported");
+        }
 
         const statusDiv = document.getElementById('voice-status');
         const micBtn = document.getElementById('mic-btn');
 
         recognition.onstart = () => {
+            console.log("Voice started");
             isListening = true;
             recognitionShouldContinue = true;
             micBtn.classList.remove('btn-outline-primary');
             micBtn.classList.add('listening'); 
             statusDiv.innerHTML = '<i class="fas fa-circle text-danger me-1"></i>Listening...';
+        };
+
+        // FIX 2: Loud Error Handling for Debugging
+        recognition.onerror = function(event) {
+             alert("VOICE ERROR: " + event.error + "\n(Try getting closer to mic, checking permissions, or toggling WiFi)");
+             isListening = false;
+             micBtn.classList.add('btn-outline-primary');
+             micBtn.classList.remove('listening');
+             statusDiv.innerText = '';
         };
 
         recognition.onresult = (event) => {
@@ -488,7 +505,14 @@
 
         recognition.onend = () => {
             if (recognitionShouldContinue) {
-                recognition.start(); 
+                // Try-catch block to prevent loops if error caused stop
+                try {
+                    recognition.start(); 
+                } catch(e) {
+                    isListening = false;
+                    micBtn.classList.add('btn-outline-primary');
+                    micBtn.classList.remove('listening');
+                }
             } else {
                 isListening = false;
                 micBtn.classList.add('btn-outline-primary');
